@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/cloudfoundry/bosh-bootloader/application"
 	"github.com/cloudfoundry/bosh-bootloader/aws"
@@ -59,6 +60,11 @@ func main() {
 		}
 	}
 
+	os.MkdirAll(filepath.Join(appConfig.Global.StateDir, "terraform"), os.ModePerm)
+	os.MkdirAll(filepath.Join(appConfig.Global.StateDir, "bosh/jumpbox"), os.ModePerm)
+	os.MkdirAll(filepath.Join(appConfig.Global.StateDir, "bosh/director"), os.ModePerm)
+	os.MkdirAll(filepath.Join(appConfig.Global.StateDir, "bosh/cloudconfig"), os.ModePerm)
+
 	// Utilities
 	envIDGenerator := helpers.NewEnvIDGenerator(rand.Reader)
 	logger := application.NewLogger(os.Stdout)
@@ -70,7 +76,8 @@ func main() {
 	// Terraform
 	terraformOutputBuffer := bytes.NewBuffer([]byte{})
 	terraformCmd := terraform.NewCmd(os.Stderr, terraformOutputBuffer)
-	terraformExecutor := terraform.NewExecutor(terraformCmd, appConfig.Global.Debug)
+	terraformDir := filepath.Join(appConfig.Global.StateDir, "terraform")
+	terraformExecutor := terraform.NewExecutor(terraformCmd, appConfig.Global.Debug, terraformDir)
 
 	var (
 		stackMigrator             stack.Migrator
@@ -146,7 +153,7 @@ func main() {
 	} else if appConfig.State.IAAS == "gcp" {
 		outputGenerator = gcpterraform.NewOutputGenerator(terraformExecutor)
 		templateGenerator = gcpterraform.NewTemplateGenerator()
-		inputGenerator = gcpterraform.NewInputGenerator()
+		inputGenerator = gcpterraform.NewInputGenerator(terraformDir)
 	}
 
 	terraformManager := terraform.NewManager(terraform.NewManagerArgs{
@@ -163,8 +170,9 @@ func main() {
 	hostKeyGetter := proxy.NewHostKeyGetter()
 	socks5Proxy := proxy.NewSocks5Proxy(logger, hostKeyGetter, 0)
 	boshCommand := bosh.NewCmd(os.Stderr)
-	boshExecutor := bosh.NewExecutor(boshCommand, ioutil.TempDir, ioutil.ReadFile, json.Unmarshal,
-		json.Marshal, ioutil.WriteFile)
+	boshDir := filepath.Join(appConfig.Global.StateDir, "bosh")
+	boshExecutor := bosh.NewExecutor(boshCommand, ioutil.ReadFile, json.Unmarshal,
+		json.Marshal, ioutil.WriteFile, boshDir)
 	boshManager := bosh.NewManager(boshExecutor, logger, socks5Proxy)
 	boshClientProvider := bosh.NewClientProvider(socks5Proxy)
 	sshKeyGetter := bosh.NewSSHKeyGetter()
@@ -182,7 +190,8 @@ func main() {
 	if appConfig.State.IAAS == "azure" {
 		cloudConfigOpsGenerator = azurecloudconfig.NewOpsGenerator(terraformManager)
 	}
-	cloudConfigManager := cloudconfig.NewManager(logger, boshCommand, cloudConfigOpsGenerator, boshClientProvider, socks5Proxy, terraformManager, sshKeyGetter)
+	cloudConfigDir := filepath.Join(boshDir, "cloudconfig")
+	cloudConfigManager := cloudconfig.NewManager(logger, boshCommand, cloudConfigOpsGenerator, boshClientProvider, socks5Proxy, terraformManager, sshKeyGetter, cloudConfigDir)
 
 	// Subcommands
 	var (
@@ -211,7 +220,7 @@ func main() {
 		deleteLBsCmd = commands.NewAzureDeleteLBs(cloudConfigManager, stateStore, terraformManager)
 	}
 
-	up := commands.NewUp(upCmd, boshManager)
+	up := commands.NewUp(upCmd, boshManager, boshDir)
 
 	// Usage Command
 	usage := commands.NewUsage(logger)
@@ -237,7 +246,7 @@ func main() {
 	commandSet["ssh-key"] = commands.NewSSHKey(logger, stateValidator, sshKeyGetter)
 	commandSet["env-id"] = commands.NewStateQuery(logger, stateValidator, terraformManager, infrastructureManager, commands.EnvIDPropertyName)
 	commandSet["latest-error"] = commands.NewLatestError(logger, stateValidator)
-	commandSet["print-env"] = commands.NewPrintEnv(logger, stateValidator, terraformManager)
+	commandSet["print-env"] = commands.NewPrintEnv(logger, stateValidator, terraformManager, appConfig.Global.StateDir)
 	commandSet["cloud-config"] = commands.NewCloudConfig(logger, stateValidator, cloudConfigManager)
 	commandSet["jumpbox-deployment-vars"] = commands.NewJumpboxDeploymentVars(logger, boshManager, stateValidator, terraformManager)
 	commandSet["bosh-deployment-vars"] = commands.NewBOSHDeploymentVars(logger, boshManager, stateValidator, terraformManager)

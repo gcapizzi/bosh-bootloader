@@ -156,6 +156,7 @@ func (m *Manager) CreateJumpbox(state storage.State, terraformOutputs map[string
 		Manifest:  interpolateOutputs.Manifest,
 		State:     state.Jumpbox.State,
 		Variables: string(variables),
+		Dir:       "jumpbox",
 	})
 	switch err.(type) {
 	case CreateEnvError:
@@ -215,6 +216,7 @@ func (m *Manager) CreateDirector(state storage.State, terraformOutputs map[strin
 		Manifest:  interpolateOutputs.Manifest,
 		State:     state.BOSH.State,
 		Variables: interpolateOutputs.Variables,
+		Dir:       "director",
 	})
 
 	switch err.(type) {
@@ -253,7 +255,7 @@ func (m *Manager) CreateDirector(state storage.State, terraformOutputs map[strin
 	return state, nil
 }
 
-func (m *Manager) Delete(state storage.State, terraformOutputs map[string]interface{}) error {
+func (m *Manager) DeleteDirector(state storage.State, terraformOutputs map[string]interface{}) error {
 	iaasInputs := InterpolateInput{
 		IAAS:      state.IAAS,
 		BOSHState: state.BOSH.State,
@@ -285,6 +287,7 @@ func (m *Manager) Delete(state storage.State, terraformOutputs map[string]interf
 		Manifest:  interpolateOutputs.Manifest,
 		State:     state.BOSH.State,
 		Variables: interpolateOutputs.Variables,
+		Dir:       "director",
 	})
 	switch err.(type) {
 	case DeleteEnvError:
@@ -316,6 +319,7 @@ func (m *Manager) DeleteJumpbox(state storage.State, terraformOutputs map[string
 		Manifest:  interpolateOutputs.Manifest,
 		State:     state.Jumpbox.State,
 		Variables: interpolateOutputs.Variables,
+		Dir:       "jumpbox",
 	})
 	switch err.(type) {
 	case DeleteEnvError:

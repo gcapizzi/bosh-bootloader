@@ -41,11 +41,11 @@ const azureSSHStaticIP = `
 
 type Executor struct {
 	command       command
-	tempDir       func(string, string) (string, error)
 	readFile      func(string) ([]byte, error)
 	unmarshalJSON func([]byte, interface{}) error
 	marshalJSON   func(interface{}) ([]byte, error)
 	writeFile     func(string, []byte, os.FileMode) error
+	boshDir       string
 }
 
 type InterpolateInput struct {
@@ -71,6 +71,7 @@ type CreateEnvInput struct {
 	Manifest  string
 	Variables string
 	State     map[string]interface{}
+	Dir       string
 }
 
 type CreateEnvOutput struct {
@@ -81,6 +82,7 @@ type DeleteEnvInput struct {
 	Manifest  string
 	Variables string
 	State     map[string]interface{}
+	Dir       string
 }
 
 type command interface {
@@ -89,25 +91,21 @@ type command interface {
 
 const VERSION_DEV_BUILD = "[DEV BUILD]"
 
-func NewExecutor(cmd command, tempDir func(string, string) (string, error), readFile func(string) ([]byte, error),
+func NewExecutor(cmd command, readFile func(string) ([]byte, error),
 	unmarshalJSON func([]byte, interface{}) error,
-	marshalJSON func(interface{}) ([]byte, error), writeFile func(string, []byte, os.FileMode) error) Executor {
+	marshalJSON func(interface{}) ([]byte, error), writeFile func(string, []byte, os.FileMode) error, boshDir string) Executor {
 	return Executor{
 		command:       cmd,
-		tempDir:       tempDir,
 		readFile:      readFile,
 		unmarshalJSON: unmarshalJSON,
 		marshalJSON:   marshalJSON,
 		writeFile:     writeFile,
+		boshDir:       boshDir,
 	}
 }
 
 func (e Executor) JumpboxInterpolate(interpolateInput InterpolateInput) (JumpboxInterpolateOutput, error) {
-	tempDir, err := e.tempDir("", "")
-	if err != nil {
-		return JumpboxInterpolateOutput{}, fmt.Errorf("create temp dir: %s", err)
-	}
-
+	jumpboxDir := filepath.Join(e.boshDir, "jumpbox")
 	var jumpboxSetupFiles = map[string][]byte{
 		"jumpbox-deployment-vars.yml": []byte(interpolateInput.JumpboxDeploymentVars),
 		"jumpbox.yml":                 MustAsset("vendor/github.com/cppforlife/jumpbox-deployment/jumpbox.yml"),
@@ -119,7 +117,7 @@ func (e Executor) JumpboxInterpolate(interpolateInput InterpolateInput) (Jumpbox
 	}
 
 	for path, contents := range jumpboxSetupFiles {
-		err = e.writeFile(filepath.Join(tempDir, path), contents, os.ModePerm)
+		err := e.writeFile(filepath.Join(jumpboxDir, path), contents, os.ModePerm)
 		if err != nil {
 			//not tested
 			return JumpboxInterpolateOutput{}, fmt.Errorf("write file: %s", err)
@@ -127,20 +125,20 @@ func (e Executor) JumpboxInterpolate(interpolateInput InterpolateInput) (Jumpbox
 	}
 
 	args := []string{
-		"interpolate", filepath.Join(tempDir, "jumpbox.yml"),
+		"interpolate", filepath.Join(jumpboxDir, "jumpbox.yml"),
 		"--var-errs",
-		"--vars-store", filepath.Join(tempDir, "variables.yml"),
-		"--vars-file", filepath.Join(tempDir, "jumpbox-deployment-vars.yml"),
-		"-o", filepath.Join(tempDir, "cpi.yml"),
+		"--vars-store", filepath.Join(jumpboxDir, "variables.yml"),
+		"--vars-file", filepath.Join(jumpboxDir, "jumpbox-deployment-vars.yml"),
+		"-o", filepath.Join(jumpboxDir, "cpi.yml"),
 	}
 
 	buffer := bytes.NewBuffer([]byte{})
-	err = e.command.Run(buffer, tempDir, args)
+	err := e.command.Run(buffer, jumpboxDir, args)
 	if err != nil {
 		return JumpboxInterpolateOutput{}, fmt.Errorf("bosh interpolate: %s: %s", err, buffer)
 	}
 
-	varsStore, err := e.readFile(filepath.Join(tempDir, "variables.yml"))
+	varsStore, err := e.readFile(filepath.Join(jumpboxDir, "variables.yml"))
 	if err != nil {
 		return JumpboxInterpolateOutput{}, fmt.Errorf("read file: %s", err)
 	}
@@ -152,12 +150,7 @@ func (e Executor) JumpboxInterpolate(interpolateInput InterpolateInput) (Jumpbox
 }
 
 func (e Executor) DirectorInterpolate(interpolateInput InterpolateInput) (InterpolateOutput, error) {
-	tempDir, err := e.tempDir("", "")
-	if err != nil {
-		//not tested
-		return InterpolateOutput{}, err
-	}
-
+	directorDir := filepath.Join(e.boshDir, "director")
 	var directorSetupFiles = map[string][]byte{
 		"deployment-vars.yml":                    []byte(interpolateInput.DirectorDeploymentVars),
 		"user-ops-file.yml":                      []byte(interpolateInput.OpsFile),
@@ -181,7 +174,7 @@ func (e Executor) DirectorInterpolate(interpolateInput InterpolateInput) (Interp
 	}
 
 	for path, contents := range directorSetupFiles {
-		err = e.writeFile(filepath.Join(tempDir, path), contents, os.ModePerm)
+		err := e.writeFile(filepath.Join(directorDir, path), contents, os.ModePerm)
 		if err != nil {
 			//not tested
 			return InterpolateOutput{}, err
@@ -189,69 +182,69 @@ func (e Executor) DirectorInterpolate(interpolateInput InterpolateInput) (Interp
 	}
 
 	var args = []string{
-		"interpolate", filepath.Join(tempDir, "bosh.yml"),
+		"interpolate", filepath.Join(directorDir, "bosh.yml"),
 		"--var-errs",
 		"--var-errs-unused",
-		"--vars-store", filepath.Join(tempDir, "variables.yml"),
-		"--vars-file", filepath.Join(tempDir, "deployment-vars.yml"),
-		"-o", filepath.Join(tempDir, "cpi.yml"),
+		"--vars-store", filepath.Join(directorDir, "variables.yml"),
+		"--vars-file", filepath.Join(directorDir, "deployment-vars.yml"),
+		"-o", filepath.Join(directorDir, "cpi.yml"),
 	}
 
 	switch interpolateInput.IAAS {
 	case "gcp":
 		args = append(args,
-			"-o", filepath.Join(tempDir, "jumpbox-user.yml"),
-			"-o", filepath.Join(tempDir, "uaa.yml"),
-			"-o", filepath.Join(tempDir, "credhub.yml"),
-			"-o", filepath.Join(tempDir, "gcp-bosh-director-ephemeral-ip-ops.yml"),
+			"-o", filepath.Join(directorDir, "jumpbox-user.yml"),
+			"-o", filepath.Join(directorDir, "uaa.yml"),
+			"-o", filepath.Join(directorDir, "credhub.yml"),
+			"-o", filepath.Join(directorDir, "gcp-bosh-director-ephemeral-ip-ops.yml"),
 		)
 	case "aws":
 		args = append(args,
-			"-o", filepath.Join(tempDir, "jumpbox-user.yml"),
-			"-o", filepath.Join(tempDir, "uaa.yml"),
-			"-o", filepath.Join(tempDir, "credhub.yml"),
-			"-o", filepath.Join(tempDir, "aws-bosh-director-ephemeral-ip-ops.yml"),
-			"-o", filepath.Join(tempDir, "iam-instance-profile.yml"),
-			"-o", filepath.Join(tempDir, "aws-bosh-director-encrypt-disk-ops.yml"),
+			"-o", filepath.Join(directorDir, "jumpbox-user.yml"),
+			"-o", filepath.Join(directorDir, "uaa.yml"),
+			"-o", filepath.Join(directorDir, "credhub.yml"),
+			"-o", filepath.Join(directorDir, "aws-bosh-director-ephemeral-ip-ops.yml"),
+			"-o", filepath.Join(directorDir, "iam-instance-profile.yml"),
+			"-o", filepath.Join(directorDir, "aws-bosh-director-encrypt-disk-ops.yml"),
 		)
 	case "azure":
 		// NOTE: azure does not yet support jumpbox
 		args = append(args,
-			"-o", filepath.Join(tempDir, "jumpbox-user.yml"),
-			"-o", filepath.Join(tempDir, "azure-external-ip-not-recommended.yml"),
-			"-o", filepath.Join(tempDir, "azure-ssh-static-ip.yml"),
+			"-o", filepath.Join(directorDir, "jumpbox-user.yml"),
+			"-o", filepath.Join(directorDir, "azure-external-ip-not-recommended.yml"),
+			"-o", filepath.Join(directorDir, "azure-ssh-static-ip.yml"),
 		)
 	}
 
 	buffer := bytes.NewBuffer([]byte{})
-	err = e.command.Run(buffer, tempDir, args)
+	err := e.command.Run(buffer, directorDir, args)
 	if err != nil {
 		return InterpolateOutput{}, err
 	}
 
 	if interpolateInput.OpsFile != "" {
-		err = e.writeFile(filepath.Join(tempDir, "bosh.yml"), buffer.Bytes(), os.ModePerm)
+		err = e.writeFile(filepath.Join(directorDir, "bosh.yml"), buffer.Bytes(), os.ModePerm)
 		if err != nil {
 			//not tested
 			return InterpolateOutput{}, err
 		}
 
 		args = []string{
-			"interpolate", filepath.Join(tempDir, "bosh.yml"),
+			"interpolate", filepath.Join(directorDir, "bosh.yml"),
 			"--var-errs",
-			"--vars-store", filepath.Join(tempDir, "variables.yml"),
-			"--vars-file", filepath.Join(tempDir, "deployment-vars.yml"),
-			"-o", filepath.Join(tempDir, "user-ops-file.yml"),
+			"--vars-store", filepath.Join(directorDir, "variables.yml"),
+			"--vars-file", filepath.Join(directorDir, "deployment-vars.yml"),
+			"-o", filepath.Join(directorDir, "user-ops-file.yml"),
 		}
 
 		buffer = bytes.NewBuffer([]byte{})
-		err = e.command.Run(buffer, tempDir, args)
+		err = e.command.Run(buffer, directorDir, args)
 		if err != nil {
 			return InterpolateOutput{}, err
 		}
 	}
 
-	varsStore, err := e.readFile(filepath.Join(tempDir, "variables.yml"))
+	varsStore, err := e.readFile(filepath.Join(directorDir, "variables.yml"))
 	if err != nil {
 		return InterpolateOutput{}, err
 	}
@@ -263,14 +256,16 @@ func (e Executor) DirectorInterpolate(interpolateInput InterpolateInput) (Interp
 }
 
 func (e Executor) CreateEnv(createEnvInput CreateEnvInput) (CreateEnvOutput, error) {
-	tempDir, err := e.writePreviousFiles(createEnvInput.State, createEnvInput.Variables, createEnvInput.Manifest)
+	workingDir := filepath.Join(e.boshDir, createEnvInput.Dir)
+
+	err := e.writePreviousFiles(createEnvInput.State, createEnvInput.Variables, createEnvInput.Manifest, workingDir)
 	if err != nil {
 		return CreateEnvOutput{}, err
 	}
 
-	statePath := fmt.Sprintf("%s/state.json", tempDir)
-	variablesPath := fmt.Sprintf("%s/variables.yml", tempDir)
-	manifestPath := filepath.Join(tempDir, "manifest.yml")
+	statePath := fmt.Sprintf("%s/state.json", workingDir)
+	variablesPath := fmt.Sprintf("%s/variables.yml", workingDir)
+	manifestPath := filepath.Join(workingDir, "manifest.yml")
 
 	args := []string{
 		"create-env", manifestPath,
@@ -278,7 +273,7 @@ func (e Executor) CreateEnv(createEnvInput CreateEnvInput) (CreateEnvOutput, err
 		"--state", statePath,
 	}
 
-	err = e.command.Run(os.Stdout, tempDir, args)
+	err = e.command.Run(os.Stdout, workingDir, args)
 	if err != nil {
 		state, readErr := e.readBOSHState(statePath)
 		if readErr != nil {
@@ -317,14 +312,15 @@ func (e Executor) readBOSHState(statePath string) (map[string]interface{}, error
 }
 
 func (e Executor) DeleteEnv(deleteEnvInput DeleteEnvInput) error {
-	tempDir, err := e.writePreviousFiles(deleteEnvInput.State, deleteEnvInput.Variables, deleteEnvInput.Manifest)
+	workingDir := filepath.Join(e.boshDir, deleteEnvInput.Dir)
+	err := e.writePreviousFiles(deleteEnvInput.State, deleteEnvInput.Variables, deleteEnvInput.Manifest, workingDir)
 	if err != nil {
 		return err
 	}
 
-	statePath := fmt.Sprintf("%s/state.json", tempDir)
-	variablesPath := fmt.Sprintf("%s/variables.yml", tempDir)
-	boshManifestPath := filepath.Join(tempDir, "manifest.yml")
+	statePath := fmt.Sprintf("%s/state.json", workingDir)
+	variablesPath := fmt.Sprintf("%s/variables.yml", workingDir)
+	boshManifestPath := filepath.Join(workingDir, "manifest.yml")
 
 	args := []string{
 		"delete-env", boshManifestPath,
@@ -332,7 +328,7 @@ func (e Executor) DeleteEnv(deleteEnvInput DeleteEnvInput) error {
 		"--state", statePath,
 	}
 
-	err = e.command.Run(os.Stdout, tempDir, args)
+	err = e.command.Run(os.Stdout, workingDir, args)
 	if err != nil {
 		state, readErr := e.readBOSHState(statePath)
 		if readErr != nil {
@@ -348,15 +344,10 @@ func (e Executor) DeleteEnv(deleteEnvInput DeleteEnvInput) error {
 }
 
 func (e Executor) Version() (string, error) {
-	tempDir, err := e.tempDir("", "")
-	if err != nil {
-		return "", err
-	}
-
 	args := []string{"-v"}
 
 	buffer := bytes.NewBuffer([]byte{})
-	err = e.command.Run(buffer, tempDir, args)
+	err := e.command.Run(buffer, e.boshDir, args)
 	if err != nil {
 		return "", err
 	}
@@ -372,38 +363,33 @@ func (e Executor) Version() (string, error) {
 	return version, nil
 }
 
-func (e Executor) writePreviousFiles(state map[string]interface{}, variables, manifest string) (string, error) {
-	tempDir, err := e.tempDir("", "")
-	if err != nil {
-		return "", err
-	}
-
-	statePath := fmt.Sprintf("%s/state.json", tempDir)
-	variablesPath := fmt.Sprintf("%s/variables.yml", tempDir)
-	boshManifestPath := filepath.Join(tempDir, "manifest.yml")
+func (e Executor) writePreviousFiles(state map[string]interface{}, variables, manifest, workingDir string) error {
+	statePath := fmt.Sprintf("%s/state.json", workingDir)
+	variablesPath := fmt.Sprintf("%s/variables.yml", workingDir)
+	boshManifestPath := filepath.Join(workingDir, "manifest.yml")
 
 	if state != nil {
 		boshStateContents, err := e.marshalJSON(state)
 		if err != nil {
-			return "", err
+			return err
 		}
 		err = e.writeFile(statePath, boshStateContents, os.ModePerm)
 		if err != nil {
-			return "", err
+			return err
 		}
 	}
 
-	err = e.writeFile(variablesPath, []byte(variables), os.ModePerm)
+	err := e.writeFile(variablesPath, []byte(variables), os.ModePerm)
 	if err != nil {
 		// not tested
-		return "", err
+		return err
 	}
 
 	err = e.writeFile(boshManifestPath, []byte(manifest), os.ModePerm)
 	if err != nil {
 		// not tested
-		return "", err
+		return err
 	}
 
-	return tempDir, nil
+	return nil
 }

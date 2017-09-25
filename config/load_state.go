@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 
 	"github.com/cloudfoundry/bosh-bootloader/application"
 	"github.com/cloudfoundry/bosh-bootloader/storage"
@@ -81,6 +82,12 @@ func (c Config) Bootstrap(args []string) (application.Configuration, error) {
 
 	if globalFlags.StateDir == "" {
 		globalFlags.StateDir, err = os.Getwd()
+		if err != nil {
+			// not tested
+			return application.Configuration{}, err
+		}
+	} else {
+		globalFlags.StateDir, err = filepath.Abs(globalFlags.StateDir)
 		if err != nil {
 			// not tested
 			return application.Configuration{}, err

@@ -16,17 +16,19 @@ type PrintEnv struct {
 	stateValidator   stateValidator
 	logger           logger
 	terraformManager terraformOutputter
+	stateDir         string
 }
 
 type envSetter interface {
 	Set(key, value string) error
 }
 
-func NewPrintEnv(logger logger, stateValidator stateValidator, terraformManager terraformOutputter) PrintEnv {
+func NewPrintEnv(logger logger, stateValidator stateValidator, terraformManager terraformOutputter, stateDir string) PrintEnv {
 	return PrintEnv{
 		stateValidator:   stateValidator,
 		logger:           logger,
 		terraformManager: terraformManager,
+		stateDir:         stateDir,
 	}
 }
 
@@ -61,13 +63,7 @@ func (p PrintEnv) Execute(args []string, state storage.State) error {
 		return err
 	}
 
-	dir, err := ioutil.TempDir("", "bosh-jumpbox")
-	if err != nil {
-		// not tested
-		return err
-	}
-
-	privateKeyPath := filepath.Join(dir, "bosh_jumpbox_private.key")
+	privateKeyPath := filepath.Join(p.stateDir, "bosh_jumpbox_private.key")
 
 	privateKeyContents, err := p.privateKeyFromJumpboxVariables(state.Jumpbox.Variables)
 	if err != nil {

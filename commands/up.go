@@ -13,6 +13,7 @@ import (
 type Up struct {
 	upCmd       UpCmd
 	boshManager boshManager
+	boshDir     string
 }
 
 type UpCmd interface {
@@ -25,10 +26,11 @@ type UpConfig struct {
 	NoDirector bool
 }
 
-func NewUp(upCmd UpCmd, boshManager boshManager) Up {
+func NewUp(upCmd UpCmd, boshManager boshManager, boshDir string) Up {
 	return Up{
 		upCmd:       upCmd,
 		boshManager: boshManager,
+		boshDir:     boshDir,
 	}
 }
 
@@ -68,13 +70,8 @@ func (u Up) Execute(args []string, state storage.State) error {
 func (u Up) parseArgs(state storage.State, args []string) (UpConfig, error) {
 	var config UpConfig
 
-	tempDir, err := ioutil.TempDir("", "")
-	if err != nil {
-		return UpConfig{}, err //not tested
-	}
-
-	prevOpsFilePath := filepath.Join(tempDir, "user-ops-file")
-	err = ioutil.WriteFile(prevOpsFilePath, []byte(state.BOSH.UserOpsFile), os.ModePerm)
+	prevOpsFilePath := filepath.Join(u.boshDir, "previous-user-ops-file.yml")
+	err := ioutil.WriteFile(prevOpsFilePath, []byte(state.BOSH.UserOpsFile), os.ModePerm)
 	if err != nil {
 		return UpConfig{}, err //not tested
 	}

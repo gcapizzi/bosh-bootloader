@@ -8,24 +8,21 @@ import (
 	"github.com/cloudfoundry/bosh-bootloader/storage"
 )
 
-var tempDir func(dir, prefix string) (string, error) = ioutil.TempDir
 var writeFile func(file string, data []byte, perm os.FileMode) error = ioutil.WriteFile
 
 type InputGenerator struct {
+	stateDir string
 }
 
-func NewInputGenerator() InputGenerator {
-	return InputGenerator{}
+func NewInputGenerator(stateDir string) InputGenerator {
+	return InputGenerator{
+		stateDir: stateDir,
+	}
 }
 
 func (i InputGenerator) Generate(state storage.State) (map[string]string, error) {
-	dir, err := tempDir("", "")
-	if err != nil {
-		return map[string]string{}, err
-	}
-
-	credentialsPath := filepath.Join(dir, "credentials.json")
-	err = writeFile(credentialsPath, []byte(state.GCP.ServiceAccountKey), os.ModePerm)
+	credentialsPath := filepath.Join(i.stateDir, "credentials.json")
+	err := writeFile(credentialsPath, []byte(state.GCP.ServiceAccountKey), os.ModePerm)
 	if err != nil {
 		return map[string]string{}, err
 	}
@@ -40,14 +37,14 @@ func (i InputGenerator) Generate(state storage.State) (map[string]string, error)
 	}
 
 	if state.LB.Cert != "" && state.LB.Key != "" {
-		certPath := filepath.Join(dir, "cert")
+		certPath := filepath.Join(i.stateDir, "cert")
 		err = writeFile(certPath, []byte(state.LB.Cert), os.ModePerm)
 		if err != nil {
 			return map[string]string{}, err
 		}
 		input["ssl_certificate"] = certPath
 
-		keyPath := filepath.Join(dir, "key")
+		keyPath := filepath.Join(i.stateDir, "key")
 		err = writeFile(keyPath, []byte(state.LB.Key), os.ModePerm)
 		if err != nil {
 			return map[string]string{}, err

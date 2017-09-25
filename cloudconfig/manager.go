@@ -15,7 +15,6 @@ import (
 )
 
 var (
-	tempDir     func(string, string) (string, error)                                  = ioutil.TempDir
 	writeFile   func(string, []byte, os.FileMode) error                               = ioutil.WriteFile
 	proxySOCKS5 func(string, string, *proxy.Auth, proxy.Dialer) (proxy.Dialer, error) = proxy.SOCKS5
 )
@@ -28,6 +27,7 @@ type Manager struct {
 	socks5Proxy        socks5Proxy
 	terraformManager   terraformManager
 	sshKeyGetter       sshKeyGetter
+	cloudConfigDir     string
 }
 
 type logger interface {
@@ -60,7 +60,7 @@ type sshKeyGetter interface {
 }
 
 func NewManager(logger logger, cmd command, opsGenerator OpsGenerator, boshClientProvider boshClientProvider,
-	socks5Proxy socks5Proxy, terraformManager terraformManager, sshKeyGetter sshKeyGetter) Manager {
+	socks5Proxy socks5Proxy, terraformManager terraformManager, sshKeyGetter sshKeyGetter, cloudConfigDir string) Manager {
 	return Manager{
 		logger:             logger,
 		command:            cmd,
@@ -69,17 +69,13 @@ func NewManager(logger logger, cmd command, opsGenerator OpsGenerator, boshClien
 		socks5Proxy:        socks5Proxy,
 		terraformManager:   terraformManager,
 		sshKeyGetter:       sshKeyGetter,
+		cloudConfigDir:     cloudConfigDir,
 	}
 }
 
 func (m Manager) Generate(state storage.State) (string, error) {
 	buf := bytes.NewBuffer([]byte{})
-	workingDir, err := tempDir("", "")
-	if err != nil {
-		return "", err
-	}
-
-	err = writeFile(filepath.Join(workingDir, "cloud-config.yml"), []byte(BaseCloudConfig), os.ModePerm)
+	err := writeFile(filepath.Join(m.cloudConfigDir, "cloud-config.yml"), []byte(BaseCloudConfig), os.ModePerm)
 	if err != nil {
 		return "", err
 	}
@@ -89,17 +85,17 @@ func (m Manager) Generate(state storage.State) (string, error) {
 		return "", err
 	}
 
-	err = writeFile(filepath.Join(workingDir, "ops.yml"), []byte(ops), os.ModePerm)
+	err = writeFile(filepath.Join(m.cloudConfigDir, "ops.yml"), []byte(ops), os.ModePerm)
 	if err != nil {
 		return "", err
 	}
 
 	args := []string{
-		"interpolate", fmt.Sprintf("%s/cloud-config.yml", workingDir),
-		"-o", fmt.Sprintf("%s/ops.yml", workingDir),
+		"interpolate", fmt.Sprintf("%s/cloud-config.yml", m.cloudConfigDir),
+		"-o", fmt.Sprintf("%s/ops.yml", m.cloudConfigDir),
 	}
 
-	err = m.command.Run(buf, workingDir, args)
+	err = m.command.Run(buf, m.cloudConfigDir, args)
 	if err != nil {
 		return "", err
 	}
