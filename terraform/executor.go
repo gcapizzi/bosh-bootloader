@@ -63,10 +63,12 @@ func (e Executor) Apply(input map[string]string, template, prevTFState string) (
 		return "", err
 	}
 
-	args := []string{"apply"}
-	for k, v := range input {
-		args = append(args, makeVar(k, v)...)
+	err = writeFile(filepath.Join(e.terraformDir, "terraform.tfvars"), []byte(makeTFVars(input)), os.ModePerm)
+	if err != nil {
+		return "", err
 	}
+
+	args := []string{"apply"}
 	err = e.cmd.Run(os.Stdout, e.terraformDir, args, e.debug)
 	if err != nil {
 		return "", NewExecutorError(filepath.Join(e.terraformDir, "terraform.tfstate"), err, e.debug)
@@ -231,4 +233,14 @@ func (e Executor) Outputs(tfState string) (map[string]interface{}, error) {
 
 func makeVar(name string, value string) []string {
 	return []string{"-var", fmt.Sprintf("%s=%s", name, value)}
+}
+
+func makeTFVars(input map[string]string) string {
+	var tfVars []string
+
+	for k, v := range input {
+		tfVars = append(tfVars, fmt.Sprintf(`%s = "%s"`, k, v))
+	}
+
+	return strings.Join(tfVars, "\n")
 }
