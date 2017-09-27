@@ -37,7 +37,7 @@ var _ = Describe("up", func() {
 		Eventually(session, 10*time.Minute).Should(gexec.Exit())
 	})
 
-	It("bbl's up a new bosh director and jumpbox", func() {
+	FIt("bbl's up a new bosh director and jumpbox", func() {
 		acceptance.SkipUnless("bbl-up")
 		session := bbl.Up("--name", bbl.PredefinedEnvID())
 		Eventually(session, 40*time.Minute).Should(gexec.Exit(0))
@@ -50,12 +50,14 @@ var _ = Describe("up", func() {
 			directorAddress = bbl.DirectorAddress()
 			caCertPath = bbl.SaveDirectorCA()
 
-			exists, err := boshcli.DirectorExists(directorAddress, caCertPath)
-			if err != nil {
-				fmt.Println(string(err.(*exec.ExitError).Stderr))
+			directorExists := func() bool {
+				exists, err := boshcli.DirectorExists(directorAddress, caCertPath)
+				if err != nil {
+					fmt.Println(string(err.(*exec.ExitError).Stderr))
+				}
+				return exists
 			}
-			Expect(err).NotTo(HaveOccurred())
-			Expect(exists).To(BeTrue())
+			Eventually(directorExists, "1m", "10s").Should(BeTrue())
 		})
 
 		By("checking that the cloud config exists", func() {

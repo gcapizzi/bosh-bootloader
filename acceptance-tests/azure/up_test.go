@@ -34,7 +34,7 @@ var _ = Describe("up test", func() {
 		Eventually(session, 10*time.Minute).Should(gexec.Exit())
 	})
 
-	It("creates the director", func() {
+	FIt("creates the director and jumpbox", func() {
 		session := bbl.Up("--name", bbl.PredefinedEnvID())
 		Eventually(session, 40*time.Minute).Should(gexec.Exit(0))
 

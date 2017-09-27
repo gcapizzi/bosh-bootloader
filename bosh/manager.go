@@ -360,6 +360,18 @@ func (m *Manager) GetJumpboxDeploymentVars(state storage.State, terraformOutputs
 			Region:                state.AWS.Region,
 			PrivateKey:            getTerraformOutput("bosh_vms_private_key", terraformOutputs),
 		}
+	case "azure":
+		vars.AzureYAML = AzureYAML{
+			VNetName:             getTerraformOutput("bosh_network_name", terraformOutputs),
+			SubnetName:           getTerraformOutput("bosh_subnet_name", terraformOutputs),
+			SubscriptionID:       state.Azure.SubscriptionID,
+			TenantID:             state.Azure.TenantID,
+			ClientID:             state.Azure.ClientID,
+			ClientSecret:         state.Azure.ClientSecret,
+			ResourceGroupName:    getTerraformOutput("bosh_resource_group_name", terraformOutputs),
+			StorageAccountName:   getTerraformOutput("bosh_storage_account_name", terraformOutputs),
+			DefaultSecurityGroup: getTerraformOutput("bosh_default_security_group", terraformOutputs),
+		}
 	}
 
 	return string(mustMarshal(vars))
