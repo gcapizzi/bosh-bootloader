@@ -52,14 +52,15 @@ type deploymentVariables struct {
 }
 
 type sharedDeploymentVarsYAML struct {
-	InternalCIDR string    `yaml:"internal_cidr,omitempty"`
-	InternalGW   string    `yaml:"internal_gw,omitempty"`
-	InternalIP   string    `yaml:"internal_ip,omitempty"`
-	DirectorName string    `yaml:"director_name,omitempty"`
-	ExternalIP   string    `yaml:"external_ip,omitempty"`
-	AWSYAML      AWSYAML   `yaml:",inline"`
-	GCPYAML      GCPYAML   `yaml:",inline"`
-	AzureYAML    AzureYAML `yaml:",inline"`
+	InternalCIDR     string                 `yaml:"internal_cidr,omitempty"`
+	InternalGW       string                 `yaml:"internal_gw,omitempty"`
+	InternalIP       string                 `yaml:"internal_ip,omitempty"`
+	DirectorName     string                 `yaml:"director_name,omitempty"`
+	ExternalIP       string                 `yaml:"external_ip,omitempty"`
+	AWSYAML          AWSYAML                `yaml:",inline"`
+	GCPYAML          GCPYAML                `yaml:",inline"`
+	AzureYAML        AzureYAML              `yaml:",inline"`
+	TerraformOutputs map[string]interface{} `yaml:",inline"`
 }
 
 type AWSYAML struct {
@@ -429,6 +430,20 @@ func (m *Manager) GetDirectorDeploymentVars(state storage.State, terraformOutput
 			DefaultSecurityGroup: getTerraformOutput("bosh_default_security_group", terraformOutputs),
 		}
 	}
+
+	protectedKeys := []string{
+		"internal_cidr",
+		"internal_gw",
+		"internal_ip",
+		"director_name",
+		"external_ip",
+	}
+
+	for _, key := range protectedKeys {
+		delete(terraformOutputs, key)
+	}
+
+	vars.TerraformOutputs = terraformOutputs
 
 	return string(mustMarshal(vars))
 }

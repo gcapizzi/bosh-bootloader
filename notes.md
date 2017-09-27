@@ -4,7 +4,6 @@ Here's what we were able to do to get a working bosh-lite using the latest `bbl`
 
 1. Check out the `write-to-state-dir` branch of `bbl`.
 1. Add the terraform override file below as `override.tf` into a `terraform/` directory in your state-dir.
-1. Run `bbl up` once without using any ops files.
 1. Run the script below with the environment variable `BOSH_DEPLOYMENT_DIR=(location of your bosh-deployment dir)`.
 1. Run `bbl up --ops-file bosh-lite-combined.yml`.
 1. Use `eval "$(bbl print-env)"` to target your bosh director.
@@ -16,13 +15,14 @@ bosh-lite.infrastructure.cf-app.com.	A	300	${bosh_lite_external_ip}
 ```
 1. Target your CF instance and push an app.
 
+What did we have to change to make this work?
 
-What still sucks about this?
-
-1. You have to `bbl up` twice.
-   We need to get the external IP address from terraform before we can provide it to the ops file.
-2. You can't just write the IP address into `bosh-deployment-vars.yml`, you have to write it directly into the ops file.
-   The vars file gets regenerated each time before bbl runs `bosh interpolate`.
+1. We add all terraform outputs to our deployment-vars.yml file
+1. We commented out the `--var-errs-unused` flag in our `bosh interpolate` step
+1. Our ops file still has to be combined for bosh-lite, and requires a few ugly things currently:
+   - we skip the end of `external-ip-not-recommended.yml` because we only want the part that assigns an external IP
+   - we replace the variable name `((external_ip))` with `((bosh_lite_external_ip))` to prevent name conflicts
+   - NOTE: we could just maintain an ops-file that is already concatenated with these changes.
 
 
 ### Terraform override
@@ -55,11 +55,9 @@ output "bosh_lite_external_ip" {
 
 Run with `BOSH_DEPLOYMENT_DIR=(location of your bosh-deployment dir)`:
 ```
-bosh_lite_external_ip="$(jq <terraform/terraform.tfstate '.modules[0].outputs.bosh_lite_external_ip.value' -r)"
-
 cat \
-  <(head -n 17 bosh/director/gcp-external-ip-not-recommended.yml \
-  | sed s/"((external_ip))"/"${bosh_lite_external_ip}"/) \
+  <(head -n 17 "${BOSH_DEPLOYMENT_DIR}/external-ip-not-recommended.yml" \
+  | sed s/"((external_ip))"/"((bosh_lite_external_ip))"/) \
   "${BOSH_DEPLOYMENT_DIR}/bosh-lite.yml" \
   "${BOSH_DEPLOYMENT_DIR}/bosh-lite-runc.yml" \
   <(tail -n +2 "${BOSH_DEPLOYMENT_DIR}/gcp/bosh-lite-vm-type.yml") \
@@ -148,3 +146,18 @@ This issue was that the concatenated ops file had a line with `---` halfway thro
 1. We deployed CF.
 1. We manually added DNS records for our CF instance.
 1. We targeted our CF instance and pushed an app.
+
+
+### Fourth try
+
+We made a few changes to allow us to do the above with 1 `bbl up`:
+
+1. Check out the `write-to-state-dir` branch of `bbl`.
+1. Add the terraform override file below as `override.tf` into a `terraform/` directory in your state-dir.
+1. Run the script below with the environment variable `BOSH_DEPLOYMENT_DIR=(location of your bosh-deployment dir)`.
+1. Run `bbl up --ops-file bosh-lite-combined.yml`.
+1. Use `eval "$(bbl print-env)"` to target your bosh director.
+1. Follow the remaining steps (5-7) in [this doc](https://github.com/cloudfoundry/cf-deployment/blob/master/bosh-lite.md#5-upload-the-cloud-config).
+1. Add DNS records for our CF instance:
+1. Target your CF instance and push an app.
+
